@@ -1,24 +1,10 @@
 from flask import Flask, render_template_string, request, jsonify
 import random
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
-import threading
 import json
-import time
+from datetime import datetime
 
 app = Flask(__name__)
-
-# ============================================
-# НАСТРОЙКИ ПОЧТЫ (Замените на свои данные)
-# ============================================
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SENDER_EMAIL = "ваша_почта@gmail.com"
-SENDER_PASSWORD = "ваш_пароль_приложения"  # Пароль приложения, не обычный пароль!
-# ============================================
 
 # База данных экспертов
 EXPERTS = [
@@ -76,90 +62,6 @@ def save_question(email, question, industry, expert):
     
     with open(QUESTIONS_FILE, 'w', encoding='utf-8') as f:
         json.dump(questions, f, ensure_ascii=False, indent=2)
-
-def send_email_response(user_email, user_question, expert_name, industry):
-    """Отправляет подтверждение на почту пользователя"""
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = user_email
-        msg['Subject'] = "Ваш вопрос принят - Служба поддержки экспертов"
-        
-        body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
-            <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 15px; padding: 30px; border-top: 5px solid #ff6b35;">
-                <h2 style="color: #ff6b35;">Служба поддержки экспертов</h2>
-                <p>Здравствуйте!</p>
-                <p>Ваш вопрос принят и передан эксперту.</p>
-                
-                <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; margin: 20px 0;">
-                    <p><strong>Ваш вопрос:</strong></p>
-                    <p>{user_question}</p>
-                    <p><strong>Отрасль:</strong> {industry}</p>
-                    <p><strong>Эксперт:</strong> {expert_name}</p>
-                </div>
-                
-                <p>Ответ придёт на эту почту в ближайшее время.</p>
-                <p style="color: #666; font-size: 12px;">Это автоматическое сообщение, пожалуйста, не отвечайте на него.</p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        msg.attach(MIMEText(body, 'html'))
-        
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        return True
-    except Exception as e:
-        print(f"Ошибка отправки email: {e}")
-        return False
-
-def send_answer_email(user_email, user_question, expert_name, answer_text):
-    """Отправляет ответ эксперта на почту"""
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = user_email
-        msg['Subject'] = "Ответ эксперта на ваш вопрос"
-        
-        body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
-            <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 15px; padding: 30px; border-top: 5px solid #ff6b35;">
-                <h2 style="color: #ff6b35;">Ответ эксперта</h2>
-                
-                <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; margin: 20px 0;">
-                    <p><strong>Ваш вопрос:</strong></p>
-                    <p>{user_question}</p>
-                    <p><strong>Эксперт:</strong> {expert_name}</p>
-                    <p><strong>Ответ:</strong></p>
-                    <p style="background-color: white; padding: 15px; border-radius: 10px;">{answer_text}</p>
-                </div>
-                
-                <p style="color: #666; font-size: 12px;">Спасибо за обращение!</p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        msg.attach(MIMEText(body, 'html'))
-        
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        
-        return True
-    except Exception as e:
-        print(f"Ошибка отправки email: {e}")
-        return False
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -441,11 +343,10 @@ HTML_TEMPLATE = '''
                     addMessage(expertHtml);
                     addMessage('📧 Письмо-подтверждение отправлено на вашу почту!', false);
                 } else {
-                    addMessage('❌ Извините, произошла ошибка. Пожалуйста, попробуйте позже.');
+                    addMessage('❌ Извините, произошла ошибка: ' + (data.error || 'Неизвестная ошибка'), false);
                 }
             } catch (error) {
-                console.error('Ошибка:', error);
-                addMessage('❌ Ошибка соединения. Проверьте интернет.');
+                addMessage('❌ Ошибка соединения. Пожалуйста, обновите страницу и попробуйте снова.', false);
             }
             
             currentState = 'completed';
@@ -471,7 +372,7 @@ HTML_TEMPLATE = '''
             }
             
             if (!email.includes('@') || !email.includes('.')) {
-                addMessage('⚠️ Пожалуйста, введите корректный email.', false);
+                addMessage('⚠️ Пожалуйста, введите корректный email (например: name@mail.ru).', false);
                 return;
             }
             
@@ -487,6 +388,18 @@ HTML_TEMPLATE = '''
             questionInput.disabled = true;
             emailInput.disabled = true;
         }
+        
+        // Отправка по Enter
+        document.addEventListener('DOMContentLoaded', function() {
+            const input = document.getElementById('questionInput');
+            if (input) {
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        sendQuestion();
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>
@@ -494,66 +407,64 @@ HTML_TEMPLATE = '''
 
 @app.route('/')
 def index():
+    print("Главная страница загружена")
     return render_template_string(HTML_TEMPLATE, industries=INDUSTRIES)
 
 @app.route('/find_expert', methods=['POST'])
 def find_expert():
-    data = request.json
-    industry = data.get('industry')
-    question = data.get('question')
-    email = data.get('email')
+    print("=" * 50)
+    print("Получен POST запрос на /find_expert")
     
-    print(f"Получен запрос: отрасль={industry}, email={email}, вопрос={question[:50]}...")
-    
-    suitable_experts = [e for e in EXPERTS if industry in e['specialization']]
-    
-    if suitable_experts:
-        expert = random.choice(suitable_experts)
-    else:
-        expert = EXPERTS[0]
-    
-    print(f"Назначен эксперт: {expert['name']}")
-    
-    # Сохраняем вопрос
     try:
-        save_question(email, question, industry, expert)
-        print("Вопрос сохранён в файл")
-    except Exception as e:
-        print(f"Ошибка сохранения: {e}")
-    
-    # Отправляем подтверждение на почту
-    try:
-        email_sent = send_email_response(email, question, expert['name'], industry)
-        if email_sent:
-            print("Письмо-подтверждение отправлено")
+        data = request.get_json()
+        print(f"Данные запроса: {data}")
+        
+        industry = data.get('industry')
+        question = data.get('question')
+        email = data.get('email')
+        
+        print(f"Отрасль: {industry}")
+        print(f"Email: {email}")
+        print(f"Вопрос: {question[:100] if question else 'None'}...")
+        
+        # Ищем подходящего эксперта
+        suitable_experts = [e for e in EXPERTS if industry in e['specialization']]
+        print(f"Найдено подходящих экспертов: {len(suitable_experts)}")
+        
+        if suitable_experts:
+            expert = random.choice(suitable_experts)
         else:
-            print("Не удалось отправить письмо")
+            expert = EXPERTS[0]
+        
+        print(f"Выбран эксперт: {expert['name']}")
+        
+        # Сохраняем вопрос в файл
+        try:
+            save_question(email, question, industry, expert)
+            print("Вопрос сохранён в questions.json")
+        except Exception as e:
+            print(f"Ошибка при сохранении: {e}")
+        
+        response = {
+            'success': True,
+            'expert': expert,
+            'industry': industry,
+            'question': question
+        }
+        
+        print(f"Отправляем ответ: {response}")
+        print("=" * 50)
+        
+        return jsonify(response)
+        
     except Exception as e:
-        print(f"Ошибка отправки письма: {e}")
-    
-    # Запускаем таймер для демо-ответа (через 15 минут)
-    def delayed_answer():
-        time.sleep(15 * 60)  # 15 минут
-        demo_answer = f"""Здравствуйте! Спасибо за ваш вопрос по отрасли "{industry}".
-
-Эксперт {expert['name']} подготовил для вас развёрнутый ответ.
-
-В демонстрационной версии проекта это тестовое сообщение. 
-В реальной версии здесь будет профессиональная консультация от нашего эксперта.
-
-По всем вопросам обращайтесь в службу поддержки."""
-        send_answer_email(email, question, expert['name'], demo_answer)
-        print(f"Демо-ответ отправлен на {email}")
-    
-    answer_thread = threading.Thread(target=delayed_answer)
-    answer_thread.start()
-    
-    return jsonify({
-        'success': True,
-        'expert': expert,
-        'industry': industry,
-        'question': question
-    })
+        print(f"ОШИБКА в /find_expert: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 # Для хостинга на Render
 application = app
@@ -562,4 +473,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print("🚀 Запуск веб-чата...")
     print("📱 Откройте в браузере: http://127.0.0.1:5000")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=True)

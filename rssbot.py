@@ -53,7 +53,7 @@ HTML_TEMPLATE = '''
         
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);;
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -222,11 +222,13 @@ HTML_TEMPLATE = '''
             </div>
         </div>
         
-        <div class="chat-input">
-            <input type="text" id="questionInput" placeholder="Введите ваш вопрос..." />
-            <button onclick="sendQuestion()">Отправить</button>
-        </div>
+        <div class="chat-input" style="flex-direction: column; gap: 10px;">
+    <input type="email" id="emailInput" placeholder="Ваш email для ответа..." style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #e0e0e0;" />
+    <div style="display: flex; gap: 10px;">
+        <input type="text" id="questionInput" placeholder="Введите ваш вопрос..." style="flex: 1; padding: 10px; border-radius: 10px; border: 1px solid #e0e0e0;" />
+        <button onclick="sendQuestion()" style="padding: 10px 20px; background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); color: white; border: none; border-radius: 10px; cursor: pointer;">Отправить</button>
     </div>
+</div>
     
     <script>
         let currentState = 'awaiting_question';
@@ -259,34 +261,60 @@ HTML_TEMPLATE = '''
         }
         
         async function selectIndustry(industry) {
-            addMessage(industry, true);
-            addMessage('<div class="typing">🎨 Ищем подходящего эксперта...</div>');
+    addMessage(industry, true);
+    addMessage('<div class="typing">🔍 Подбираем лучшего эксперта...</div>');
+    
+    try {
+        const response = await fetch('/find_expert', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                industry: industry,
+                question: userQuestion,
+                email: userEmail  // ← ДОБАВЬТЕ ЭТУ СТРОКУ
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const expertHtml = `
+                <div class="expert-card">
+                    <div class="expert-name">🤵 ${data.expert.name}</div>
+                    <div class="expert-detail">📊 ${data.expert.expertise_level}</div>
+                    <div class="expert-detail">🎯 Специализация: ${data.expert.specialization.join(', ')}</div>
+                    <div class="expert-detail">⏱️ Время ожидания: ${data.expert.response_time}</div>
+                    <div class="expert-detail">💼 Ваша отрасль: ${data.industry}</div>
+                    <div class="expert-detail">📧 Ответ придёт на: ${userEmail}</div>
+                </div>
+                <br>✨ Эксперт ${data.expert.name} подготовит ответ.<br>
+                ⏰ Через ${data.expert.response_time} вы получите консультацию на почту.<br>
+                Спасибо за обращение!
+            `;
+            addMessage(expertHtml);
             
-            try {
-                const response = await fetch('/find_expert', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        industry: industry,
-                        question: userQuestion
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    const expertHtml = `
-                        <div class="expert-card">
-                            <div class="expert-name">🤵 ${data.expert.name}</div>
-                            <div class="expert-detail">📊 ${data.expert.expertise_level}</div>
-                            <div class="expert-detail">🎯 Специализация: ${data.expert.specialization.join(', ')}</div>
-                            <div class="expert-detail">⏱️ Время ожидания: ${data.expert.response_time}</div>
-                            <div class="expert-detail">💼 Ваша отрасль: ${data.industry}</div>
-                        </div>
-                        <br>✨ Эксперт ${data.expert.name} свяжется с вами в течение ${data.expert.response_time}.<br>
-                        Спасибо за обращение!
+            // Запускаем таймер на 15 минут (демо)
+            addMessage('⏳ Запущен таймер ответа. Через 15 минут придёт уведомление!', false);
+            startResponseTimer();
+        } else {
+            addMessage('❌ Извините, произошла ошибка. Пожалуйста, попробуйте позже.');
+        }
+    } catch (error) {
+        addMessage('❌ Ошибка соединения. Проверьте интернет.');
+    }
+    
+    currentState = 'completed';
+}
+
+// Добавьте эту функцию для таймера
+function startResponseTimer() {
+    setTimeout(() => {
+        addMessage('📧 Уведомление! Эксперт отправил ответ на вашу почту.', false);
+        addMessage('💡 Проверьте ваш email в течение 5-10 минут.', false);
+    }, 15 * 60 * 1000); // 15 минут
+}
                     `;
                     addMessage(expertHtml);
                 } else {
@@ -334,6 +362,7 @@ def find_expert():
     data = request.json
     industry = data.get('industry')
     question = data.get('question')
+    email = data.get('email')
     
     suitable_experts = [e for e in EXPERTS if industry in e['specialization']]
     

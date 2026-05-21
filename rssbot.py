@@ -1,8 +1,23 @@
 from flask import Flask, render_template_string, request, jsonify
 import random
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+import threading
+import json
 
 app = Flask(__name__)
+
+# ============================================
+# НАСТРОЙКИ ПОЧТЫ (Замените на свои данные)
+# ============================================
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "ваша_почта@gmail.com"
+SENDER_PASSWORD = "ваш_пароль_приложения"  # Пароль приложения, не обычный пароль!
+# ============================================
 
 # База данных экспертов
 EXPERTS = [
@@ -37,13 +52,144 @@ INDUSTRIES = [
     "IT", "Маркетинг", "Финансы", "Логистика", "Общепит"
 ]
 
+# Файл для хранения вопросов
+QUESTIONS_FILE = "questions.json"
+
+def save_question(email, question, industry, expert):
+    """Сохраняет вопрос в файл"""
+    question_data = {
+        "email": email,
+        "question": question,
+        "industry": industry,
+        "expert": expert["name"],
+        "asked_at": datetime.now().isoformat()
+    }
+    
+    try:
+        with open(QUESTIONS_FILE, 'r', encoding='utf-8') as f:
+            questions = json.load(f)
+    except:
+        questions = []
+    
+    questions.append(question_data)
+    
+    with open(QUESTIONS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(questions, f, ensure_ascii=False, indent=2)
+
+def send_email_response(user_email, user_question, expert_name, industry):
+    """Отправляет подтверждение на почту пользователя"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = user_email
+        msg['Subject'] = "Ваш вопрос принят - Служба поддержки экспертов"
+        
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 15px; padding: 30px; border-top: 5px solid #ff6b35;">
+                <h2 style="color: #ff6b35;">Служба поддержки экспертов</h2>
+                <p>Здравствуйте!</p>
+                <p>Ваш вопрос принят и передан эксперту.</p>
+                
+                <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; margin: 20px 0;">
+                    <p><strong>Ваш вопрос:</strong></p>
+                    <p>{user_question}</p>
+                    <p><strong>Отрасль:</strong> {industry}</p>
+                    <p><strong>Эксперт:</strong> {expert_name}</p>
+                </div>
+                
+                <p>Ответ придёт на эту почту в ближайшее время.</p>
+                <p style="color: #666; font-size: 12px;">Это автоматическое сообщение, пожалуйста, не отвечайте на него.</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        
+        return True
+    except Exception as e:
+        print(f"Ошибка отправки email: {e}")
+        return False
+
+def send_answer_email(user_email, user_question, expert_name, answer_text):
+    """Отправляет ответ эксперта на почту"""
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = user_email
+        msg['Subject'] = "Ответ эксперта на ваш вопрос"
+        
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+            <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 15px; padding: 30px; border-top: 5px solid #ff6b35;">
+                <h2 style="color: #ff6b35;">Ответ эксперта</h2>
+                
+                <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; margin: 20px 0;">
+                    <p><strong>Ваш вопрос:</strong></p>
+                    <p>{user_question}</p>
+                    <p><strong>Эксперт:</strong> {expert_name}</p>
+                    <p><strong>Ответ:</strong></p>
+                    <p style="background-color: white; padding: 15px; border-radius: 10px;">{answer_text}</p>
+                </div>
+                
+                <p style="color: #666; font-size: 12px;">Спасибо за обращение!</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        
+        return True
+    except Exception as e:
+        print(f"Ошибка отправки email: {e}")
+        return False
+
+# Демо-функция для имитации ответа через 15 минут
+def schedule_demo_answer(email, question, expert_name, industry):
+    """Запускает таймер для демо-ответа"""
+    def send_demo():
+        time.sleep(15 * 60)  # 15 минут
+        answer = f"""Здравствуйте! Спасибо за ваш вопрос по отрасли "{industry}".
+
+Это демонстрационный ответ эксперта {expert_name}. 
+
+В реальной версии проекта здесь будет развёрнутый ответ по вашей теме. 
+
+Для полноценной работы бота необходимо:
+1. Настроить SMTP сервер для отправки писем
+2. Подключить базу данных экспертов
+3. Настроить систему уведомлений
+
+Спасибо за понимание!"""
+        
+        send_answer_email(email, question, expert_name, answer)
+    
+    timer = threading.Timer(15 * 60, send_demo)
+    timer.start()
+
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Чат-бот для консультаций с экспертами</title>
+    <title>Контур Эксперт - Чат-бот консультаций</title>
     <style>
         * {
             margin: 0;
@@ -52,8 +198,8 @@ HTML_TEMPLATE = '''
         }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);;
+            font-family: 'Segoe UI', 'Inter', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -71,27 +217,28 @@ HTML_TEMPLATE = '''
         }
         
         .chat-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             color: white;
-            padding: 20px;
+            padding: 25px 20px;
             text-align: center;
         }
         
         .chat-header h1 {
-            font-size: 24px;
+            font-size: 28px;
             margin-bottom: 5px;
+            letter-spacing: 1px;
         }
         
         .chat-header p {
             font-size: 14px;
-            opacity: 0.9;
+            opacity: 0.95;
         }
         
         .chat-messages {
             height: 400px;
             overflow-y: auto;
             padding: 20px;
-            background: #f9f9f9;
+            background: #fafafa;
         }
         
         .message {
@@ -110,8 +257,8 @@ HTML_TEMPLATE = '''
         
         .message-content {
             max-width: 70%;
-            padding: 10px 15px;
-            border-radius: 15px;
+            padding: 12px 16px;
+            border-radius: 18px;
             font-size: 14px;
             line-height: 1.4;
         }
@@ -119,11 +266,11 @@ HTML_TEMPLATE = '''
         .bot .message-content {
             background: white;
             color: #333;
-            border: 1px solid #e0e0e0;
+            border: 1px solid #ffdec2;
         }
         
         .user .message-content {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             color: white;
         }
         
@@ -135,62 +282,80 @@ HTML_TEMPLATE = '''
         }
         
         .industry-btn {
-            background: #f0f0f0;
-            border: none;
+            background: #fff5ed;
+            border: 1px solid #ffdec2;
             padding: 10px;
             border-radius: 10px;
             cursor: pointer;
             transition: all 0.3s;
             font-size: 12px;
+            color: #ff6b35;
+            font-weight: 500;
         }
         
         .industry-btn:hover {
-            background: #667eea;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             color: white;
+            border: 1px solid transparent;
             transform: translateY(-2px);
         }
         
         .chat-input {
             padding: 20px;
             background: white;
-            border-top: 1px solid #e0e0e0;
+            border-top: 1px solid #f0f0f0;
+        }
+        
+        .chat-input input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        
+        .chat-input input:focus {
+            outline: none;
+            border-color: #ff6b35;
+        }
+        
+        .input-group {
             display: flex;
             gap: 10px;
         }
         
-        .chat-input input {
+        .input-group input {
             flex: 1;
-            padding: 10px;
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 14px;
+            margin-bottom: 0;
         }
         
         .chat-input button {
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
             color: white;
             border: none;
             border-radius: 10px;
             cursor: pointer;
             transition: transform 0.3s;
+            font-weight: 600;
         }
         
         .chat-input button:hover {
-            transform: scale(1.05);
+            transform: scale(1.02);
         }
         
         .expert-card {
-            background: white;
+            background: #fff5ed;
             padding: 15px;
-            border-radius: 10px;
+            border-radius: 12px;
             margin-top: 10px;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #ff6b35;
         }
         
         .expert-name {
             font-weight: bold;
-            color: #667eea;
+            color: #ff6b35;
             font-size: 16px;
         }
         
@@ -201,7 +366,7 @@ HTML_TEMPLATE = '''
         }
         
         .typing {
-            color: #999;
+            color: #ff6b35;
             font-style: italic;
         }
     </style>
@@ -209,7 +374,7 @@ HTML_TEMPLATE = '''
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <h1>🤵 Служба поддержки экспертов</h1>
+            <h1>🤵 КОНТУР ЭКСПЕРТ</h1>
             <p>Профессиональные консультации для вашего бизнеса</p>
         </div>
         
@@ -222,17 +387,19 @@ HTML_TEMPLATE = '''
             </div>
         </div>
         
-        <div class="chat-input" style="flex-direction: column; gap: 10px;">
-    <input type="email" id="emailInput" placeholder="Ваш email для ответа..." style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #e0e0e0;" />
-    <div style="display: flex; gap: 10px;">
-        <input type="text" id="questionInput" placeholder="Введите ваш вопрос..." style="flex: 1; padding: 10px; border-radius: 10px; border: 1px solid #e0e0e0;" />
-        <button onclick="sendQuestion()" style="padding: 10px 20px; background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); color: white; border: none; border-radius: 10px; cursor: pointer;">Отправить</button>
+        <div class="chat-input">
+            <input type="email" id="emailInput" placeholder="📧 Ваш email для ответа" />
+            <div class="input-group">
+                <input type="text" id="questionInput" placeholder="💬 Введите ваш вопрос..." />
+                <button onclick="sendQuestion()">Отправить</button>
+            </div>
+        </div>
     </div>
-</div>
     
     <script>
         let currentState = 'awaiting_question';
         let userQuestion = '';
+        let userEmail = '';
         
         function addMessage(text, isUser = false) {
             const messagesDiv = document.getElementById('chatMessages');
@@ -261,62 +428,40 @@ HTML_TEMPLATE = '''
         }
         
         async function selectIndustry(industry) {
-    addMessage(industry, true);
-    addMessage('<div class="typing">🔍 Подбираем лучшего эксперта...</div>');
-    
-    try {
-        const response = await fetch('/find_expert', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                industry: industry,
-                question: userQuestion,
-                email: userEmail  // ← ДОБАВЬТЕ ЭТУ СТРОКУ
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            const expertHtml = `
-                <div class="expert-card">
-                    <div class="expert-name">🤵 ${data.expert.name}</div>
-                    <div class="expert-detail">📊 ${data.expert.expertise_level}</div>
-                    <div class="expert-detail">🎯 Специализация: ${data.expert.specialization.join(', ')}</div>
-                    <div class="expert-detail">⏱️ Время ожидания: ${data.expert.response_time}</div>
-                    <div class="expert-detail">💼 Ваша отрасль: ${data.industry}</div>
-                    <div class="expert-detail">📧 Ответ придёт на: ${userEmail}</div>
-                </div>
-                <br>✨ Эксперт ${data.expert.name} подготовит ответ.<br>
-                ⏰ Через ${data.expert.response_time} вы получите консультацию на почту.<br>
-                Спасибо за обращение!
-            `;
-            addMessage(expertHtml);
+            addMessage(industry, true);
+            addMessage('<div class="typing">🔍 Подбираем лучшего эксперта...</div>');
             
-            // Запускаем таймер на 15 минут (демо)
-            addMessage('⏳ Запущен таймер ответа. Через 15 минут придёт уведомление!', false);
-            startResponseTimer();
-        } else {
-            addMessage('❌ Извините, произошла ошибка. Пожалуйста, попробуйте позже.');
-        }
-    } catch (error) {
-        addMessage('❌ Ошибка соединения. Проверьте интернет.');
-    }
-    
-    currentState = 'completed';
-}
-
-// Добавьте эту функцию для таймера
-function startResponseTimer() {
-    setTimeout(() => {
-        addMessage('📧 Уведомление! Эксперт отправил ответ на вашу почту.', false);
-        addMessage('💡 Проверьте ваш email в течение 5-10 минут.', false);
-    }, 15 * 60 * 1000); // 15 минут
-}
+            try {
+                const response = await fetch('/find_expert', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        industry: industry,
+                        question: userQuestion,
+                        email: userEmail
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const expertHtml = `
+                        <div class="expert-card">
+                            <div class="expert-name">🤵 ${data.expert.name}</div>
+                            <div class="expert-detail">📊 ${data.expert.expertise_level}</div>
+                            <div class="expert-detail">🎯 Специализация: ${data.expert.specialization.join(', ')}</div>
+                            <div class="expert-detail">⏱️ Время ожидания: ${data.expert.response_time}</div>
+                            <div class="expert-detail">💼 Ваша отрасль: ${data.industry}</div>
+                            <div class="expert-detail">📧 Ответ придёт на: ${userEmail}</div>
+                        </div>
+                        <br>✨ Эксперт ${data.expert.name} подготовит ответ.<br>
+                        ⏰ В течение ${data.expert.response_time} вы получите консультацию на почту.<br>
+                        Спасибо за обращение!
                     `;
                     addMessage(expertHtml);
+                    addMessage('📧 Письмо-подтверждение отправлено на вашу почту!', false);
                 } else {
                     addMessage('❌ Извините, произошла ошибка. Пожалуйста, попробуйте позже.');
                 }
@@ -330,23 +475,38 @@ function startResponseTimer() {
         async function sendQuestion() {
             if (currentState !== 'awaiting_question') return;
             
-            const input = document.getElementById('questionInput');
-            const question = input.value.trim();
+            const emailInput = document.getElementById('emailInput');
+            const questionInput = document.getElementById('questionInput');
+            
+            const email = emailInput.value.trim();
+            const question = questionInput.value.trim();
+            
+            if (!email) {
+                addMessage('⚠️ Пожалуйста, укажите ваш email для получения ответа.', false);
+                return;
+            }
             
             if (!question) {
                 addMessage('⚠️ Пожалуйста, введите ваш вопрос.', false);
                 return;
             }
             
+            if (!email.includes('@') || !email.includes('.')) {
+                addMessage('⚠️ Пожалуйста, введите корректный email.', false);
+                return;
+            }
+            
             addMessage(question, true);
             userQuestion = question;
+            userEmail = email;
             
             addMessage('✅ Ваш вопрос принят! Теперь выберите вашу отрасль.', false);
             addIndustryButtons();
             
             currentState = 'awaiting_industry';
-            input.value = '';
-            input.disabled = true;
+            questionInput.value = '';
+            questionInput.disabled = true;
+            emailInput.disabled = true;
         }
     </script>
 </body>
@@ -370,6 +530,32 @@ def find_expert():
         expert = random.choice(suitable_experts)
     else:
         expert = EXPERTS[0]
+    
+    # Сохраняем вопрос
+    save_question(email, question, industry, expert)
+    
+    # Отправляем подтверждение на почту
+    send_email_response(email, question, expert['name'], industry)
+    
+    # Запускаем таймер для демо-ответа (через время, указанное экспертом)
+    try:
+        import time
+        def delayed_answer():
+            time.sleep(15 * 60)  # 15 минут
+            demo_answer = f"""Здравствуйте! Спасибо за ваш вопрос по отрасли "{industry}".
+
+Эксперт {expert['name']} подготовил для вас развёрнутый ответ.
+
+В демонстрационной версии проекта это тестовое сообщение. 
+В реальной версии здесь будет профессиональная консультация от нашего эксперта.
+
+По всем вопросам обращайтесь в службу поддержки."""
+            send_answer_email(email, question, expert['name'], demo_answer)
+        
+        answer_thread = threading.Thread(target=delayed_answer)
+        answer_thread.start()
+    except Exception as e:
+        print(f"Ошибка при запуске таймера: {e}")
     
     return jsonify({
         'success': True,

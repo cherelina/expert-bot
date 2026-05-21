@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import threading
 import json
+import time
 
 app = Flask(__name__)
 
@@ -159,29 +160,6 @@ def send_answer_email(user_email, user_question, expert_name, answer_text):
     except Exception as e:
         print(f"Ошибка отправки email: {e}")
         return False
-
-# Демо-функция для имитации ответа через 15 минут
-def schedule_demo_answer(email, question, expert_name, industry):
-    """Запускает таймер для демо-ответа"""
-    def send_demo():
-        time.sleep(15 * 60)  # 15 минут
-        answer = f"""Здравствуйте! Спасибо за ваш вопрос по отрасли "{industry}".
-
-Это демонстрационный ответ эксперта {expert_name}. 
-
-В реальной версии проекта здесь будет развёрнутый ответ по вашей теме. 
-
-Для полноценной работы бота необходимо:
-1. Настроить SMTP сервер для отправки писем
-2. Подключить базу данных экспертов
-3. Настроить систему уведомлений
-
-Спасибо за понимание!"""
-        
-        send_answer_email(email, question, expert_name, answer)
-    
-    timer = threading.Timer(15 * 60, send_demo)
-    timer.start()
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -466,6 +444,7 @@ HTML_TEMPLATE = '''
                     addMessage('❌ Извините, произошла ошибка. Пожалуйста, попробуйте позже.');
                 }
             } catch (error) {
+                console.error('Ошибка:', error);
                 addMessage('❌ Ошибка соединения. Проверьте интернет.');
             }
             
@@ -524,6 +503,8 @@ def find_expert():
     question = data.get('question')
     email = data.get('email')
     
+    print(f"Получен запрос: отрасль={industry}, email={email}, вопрос={question[:50]}...")
+    
     suitable_experts = [e for e in EXPERTS if industry in e['specialization']]
     
     if suitable_experts:
@@ -531,18 +512,29 @@ def find_expert():
     else:
         expert = EXPERTS[0]
     
+    print(f"Назначен эксперт: {expert['name']}")
+    
     # Сохраняем вопрос
-    save_question(email, question, industry, expert)
+    try:
+        save_question(email, question, industry, expert)
+        print("Вопрос сохранён в файл")
+    except Exception as e:
+        print(f"Ошибка сохранения: {e}")
     
     # Отправляем подтверждение на почту
-    send_email_response(email, question, expert['name'], industry)
-    
-    # Запускаем таймер для демо-ответа (через время, указанное экспертом)
     try:
-        import time
-        def delayed_answer():
-            time.sleep(15 * 60)  # 15 минут
-            demo_answer = f"""Здравствуйте! Спасибо за ваш вопрос по отрасли "{industry}".
+        email_sent = send_email_response(email, question, expert['name'], industry)
+        if email_sent:
+            print("Письмо-подтверждение отправлено")
+        else:
+            print("Не удалось отправить письмо")
+    except Exception as e:
+        print(f"Ошибка отправки письма: {e}")
+    
+    # Запускаем таймер для демо-ответа (через 15 минут)
+    def delayed_answer():
+        time.sleep(15 * 60)  # 15 минут
+        demo_answer = f"""Здравствуйте! Спасибо за ваш вопрос по отрасли "{industry}".
 
 Эксперт {expert['name']} подготовил для вас развёрнутый ответ.
 
@@ -550,12 +542,11 @@ def find_expert():
 В реальной версии здесь будет профессиональная консультация от нашего эксперта.
 
 По всем вопросам обращайтесь в службу поддержки."""
-            send_answer_email(email, question, expert['name'], demo_answer)
-        
-        answer_thread = threading.Thread(target=delayed_answer)
-        answer_thread.start()
-    except Exception as e:
-        print(f"Ошибка при запуске таймера: {e}")
+        send_answer_email(email, question, expert['name'], demo_answer)
+        print(f"Демо-ответ отправлен на {email}")
+    
+    answer_thread = threading.Thread(target=delayed_answer)
+    answer_thread.start()
     
     return jsonify({
         'success': True,
